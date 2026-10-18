@@ -1,0 +1,19 @@
+[project]
+name = "email-agent"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "pawarasamarawickrama@gmail.com", email = "pawara-mmns" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "python-dotenv>=1.2.4",
+]
+
+[project.scripts]
+email-agent = "email_agent:main"
+
+[build-system]
+requires = ["uv_build>=0.12.17,<0.13.0"]
+build-backend = "uv_build"
