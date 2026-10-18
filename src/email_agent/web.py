@@ -1,4 +1,12 @@
 from pathlib import Path
+import os
+import secrets
+import base64
+import binascii
+
+from dotenv import load_dotenv
+from fastapi import FastAPI, Request
+from fastapi.responses import Response
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
@@ -16,6 +24,60 @@ app = FastAPI(title="Gmail AI Agent")
 templates = Jinja2Templates(
     directory=str(BASE_DIR / "templates")
 )
+
+USERNAME = os.getenv("APP_USERNAME")
+PASSWORD = os.getenv("APP_PASSWORD")
+
+if not USERNAME or not PASSWORD:
+    raise RuntimeError(
+        "APP_USERNAME and APP_PASSWORD must be configured"
+    )
+
+
+@app.middleware("http")
+async def basic_auth(request: Request, call_next):
+
+    authorization = request.headers.get("Authorization", "")
+
+    authenticated = False
+
+    if authorization.startswith("Basic "):
+        try:
+            encoded = authorization[6:]
+            decoded = base64.b64decode(
+                encoded, validate=True
+            ).decode("utf-8")
+
+            username, password = decoded.split(":", 1)
+
+            username_valid = secrets.compare_digest(
+                username.encode("utf-8"),
+                USERNAME.encode("utf-8"),
+            )
+
+            password_valid = secrets.compare_digest(
+                password.encode("utf-8"),
+                PASSWORD.encode("utf-8"),
+            )
+
+            authenticated = username_valid and password_valid
+
+        except (ValueError, UnicodeDecodeError, binascii.Error):
+            authenticated = False
+
+    if not authenticated:
+        return Response(
+            status_code=401,
+            headers={
+                "WWW-Authenticate": 'Basic realm="Gmail Agent"',
+                "Cache-Control": "no-store",
+            },
+            content="Authentication required",
+        )
+
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 app.mount(
     "/static",
