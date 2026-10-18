@@ -3,9 +3,6 @@ import email
 import os
 
 from email.header import decode_header
-from dotenv import load_dotenv
-
-load_dotenv()
 
 GMAIL_ADDRESS = os.getenv("GMAIL_ADDRESS")
 GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD")
