@@ -3,44 +3,108 @@ import email
 import os
 
 from email.header import decode_header
+from dotenv import load_dotenv
 
-GMAIL_ADDRESS = os.getenv("GMAIL_ADDRESS")
-GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD")
+load_dotenv()
 
 
-def read_gmail():
-    mail = imaplib.IMAP4_SSL("imap.gmail.com", 993)
+def decode_subject(value):
+    if not value:
+        return ""
 
-    mail.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
+    parts = decode_header(value)
 
-    mail.select("INBOX", readonly=True)
+    return "".join(
+        part.decode(encoding or "utf-8", errors="replace")
+        if isinstance(part, bytes)
+        else part
+        for part, encoding in parts
+    )
 
-    status, messages = mail.search(None, "ALL")
 
-    if status != "OK":
-        raise RuntimeError("Unable to search inbox")
+def get_recent_emails(limit: int = 5) -> list[dict]:
 
-    email_ids = messages[0].split()[-5:]
+    gmail_address = os.getenv("GMAIL_ADDRESS")
+    gmail_password = os.getenv("GMAIL_APP_PASSWORD")
 
-    for email_id in reversed(email_ids):
-        status, data = mail.fetch(email_id, "(RFC822)")
+    if not gmail_address or not gmail_password:
+        raise ValueError("Gmail credentials are missing")
+
+    emails = []
+
+    with imaplib.IMAP4_SSL("imap.gmail.com") as mail:
+
+        mail.login(gmail_address, gmail_password)
+
+        mail.select("INBOX", readonly=True)
+
+        status, messages = mail.uid("search", None, "ALL")
 
         if status != "OK":
-            continue
+            raise RuntimeError("Failed to search Gmail")
 
-        msg = email.message_from_bytes(data[0][1])
+        email_ids = messages[0].split()[-limit:]
 
-        subject = decode_header(msg["Subject"] or "")[0][0]
+        for email_id in reversed(email_ids):
 
-        if isinstance(subject, bytes):
-            subject = subject.decode(errors="replace")
+            status, data = mail.uid(
+                "fetch", email_id, "(RFC822)"
+            )
 
-        print("----------------------")
-        print("From:", msg["From"])
-        print("Subject:", subject)
+            if status != "OK":
+                continue
 
-    mail.logout()
+            raw_email = next(
+                (
+                    item[1]
+                    for item in data
+                    if isinstance(item, tuple)
+                ),
+                None,
+            )
 
+            if raw_email is None:
+                continue
 
-if __name__ == "__main__":
-    read_gmail()
+            msg = email.message_from_bytes(raw_email)
+
+            subject = decode_subject(msg["Subject"])
+
+            body = ""
+
+            if msg.is_multipart():
+
+                for part in msg.walk():
+
+                    if part.get_content_type() == "text/plain":
+                        if part.get_content_disposition() == "attachment":
+                            continue
+
+                        payload = part.get_payload(decode=True)
+
+                        if payload:
+                            body = payload.decode(
+                                part.get_content_charset() or "utf-8",
+                                errors="replace",
+                            )
+                            break
+
+            else:
+                payload = msg.get_payload(decode=True)
+
+                if payload and msg.get_content_type() == "text/plain":
+                    body = payload.decode(
+                        msg.get_content_charset() or "utf-8",
+                        errors="replace",
+                    )
+
+            emails.append({
+                "id": email_id.decode(),
+                "sender": msg["From"],
+                "subject": subject,
+                "body": body[:3000],
+            })
+
+        mail.logout()
+
+    return emails
